@@ -1,0 +1,26 @@
+* Preparse make an options to call handlers in specfication-order.
+  I.e. given 
+     [  flag .. "a" ..
+      , flag .. "b" ..]
+   If the command line is:
+    % foo -b .. -a
+   we still process -a before -b
+  How to consider options in this....?  
+
+* Mutexes
+
+* Partial orderings (e.g. must parse x after y)
+
+* Index arguments (give them a positional ordering)
+
+* Come up with a [String] example and [Int] example
+   (has to be derived)
+
+
+* Cleaner way of dealing with String than runtime hacking
+(overlapped instances (with Read)? could we make it so
+we provide default Read for all, but if user gives us
+an instance, we prefer that insted?)
+
+* Make the parsing algorithm pluggable?
+
