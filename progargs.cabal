@@ -48,7 +48,7 @@ cabal-version:       >=1.10
 
 library
   -- Modules exported by the library.
-  exposed-modules:     Prog.Args.Types, Prog.Args.OptVal, Prog.Args.Impl, Prog.Args.Args
+  exposed-modules:     Prog.Args, Prog.Args.Types, Prog.Args.OptVal, Prog.Args.Impl, Prog.Args.Args
 
   -- Modules included in this library but not exported.
   -- other-modules:

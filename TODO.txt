@@ -1,11 +1,11 @@
 * Preparse make an options to call handlers in specfication-order.
-  I.e. given 
+  I.e. given
      [  flag .. "a" ..
       , flag .. "b" ..]
    If the command line is:
     % foo -b .. -a
    we still process -a before -b
-  How to consider options in this....?  
+  How to consider options in this....?
 
 * Mutexes
 
@@ -24,3 +24,22 @@ an instance, we prefer that insted?)
 
 * Make the parsing algorithm pluggable?
 
+
+* Support option groups
+    -pH -ptm0, -Xfoo, -Xbar
+     [  group "X" "Experimental Options") [
+          opt "" "Xfoo" ...
+        , flag "" "Xbar" ...
+        ]
+        group "p" "Profile Options") [
+           flag "" ... -- defines flag for -p (-h=p prints info on both p and p's children)
+        ]
+     ]
+
+    * can put these in with all options
+       - make opt and flag return an OptElem o
+          data OptElem o = OptElemSpec (OptSpec o) | OptElemGroup (OptGroup o)
+    * ***OR*** make opt groups a special OptSpec
+               give it children OptSpec's
+               the default meaning for a group optspec is trigger to
+               print the help on that option and exit
