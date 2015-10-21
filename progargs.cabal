@@ -10,7 +10,7 @@ name:                progargs
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.1.0.0
+version:             0.2.0.0
 
 -- A short (one-line) description of the package.
 synopsis:            A command-line DSL
@@ -66,3 +66,11 @@ library
 
   -- Base language which the package is written in.
   default-language:    Haskell2010
+
+
+Test-Suite  test-progargs
+    type:            exitcode-stdio-1.0
+    main-is:         Tests/Test.hs
+    build-depends:
+        base >=4.8 && <4.9
+      , ansi-terminal >=0.6 && <0.7

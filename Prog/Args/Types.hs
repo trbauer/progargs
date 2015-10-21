@@ -61,7 +61,7 @@ data OptAttr =
   | OptAttrAllowMultiple     -- an option can be included many times, this
                              -- is useful for collecting lists of options
                              -- as well as allowing ``override'' semantics
-  | OptAttrAllowShortSyntax  -- enables parsing of the option such as -j4
+  | OptAttrAllowFusedSyntax  -- enables parsing of the option such as -j4
                              -- as fused key value pairs (i.e. same as -j=4
                              -- only the short option name is considered in
                              -- this syntax.  In cases of ambiguity,

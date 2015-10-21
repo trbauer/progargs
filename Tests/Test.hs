@@ -8,6 +8,7 @@ import Control.Exception
 import Control.Monad
 import Data.List
 import System.IO
+import System.Exit
 
 data Opts = Opts {
     oVerbose :: Bool
@@ -15,10 +16,11 @@ data Opts = Opts {
   , oFile :: FilePath
   , oLogFile :: FilePath
   , oArgs :: [String]
+  , oTriggers :: Int
   } deriving (Show, Eq)
 
 dfltOpts :: Opts
-dfltOpts = Opts False 1 "" "" []
+dfltOpts = Opts False 8 "" "" [] 0
 
 spec :: Spec Opts
 spec = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
@@ -29,19 +31,26 @@ spec = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
                 , opt spec "j" "parallel-jobs" "INT"
                     "number of parallel jobs to execute"
                     "tests are built and executed with this level of parallelism"
-                    (\i o -> o{oThreads = i}) `withDefault` (\o -> o{oThreads = 16})
+                    (\i o -> o{oThreads = i})
+                      `withDefault` (\o -> o{oThreads = oThreads dfltOpts})
+                      `withAttribute` OptAttrAllowFusedSyntax
 
                 , opt spec "f" "file" "PATH"
                     "The file to read from" "This is the file to read from"
                     (\f o -> (o {oFile = f}))
 
+                , opt spec "F" "filt" "FILTER"
+                    "A special filter" "Hmm"
+                    (\f o -> (o {oFile = f}))
+                      `withAttribute` OptAttrAllowUnset
+
                 , opt spec "l" "log-file" "PATH"
                     "an optional logfile" "Yes, it's optional"
-                    (\f o -> (o {oLogFile = f})) `withAttributes` [OptAttrAllowUnset]
+                    (\f o -> (o {oLogFile = f})) `withAttribute` OptAttrAllowUnset
 
-          --      , trigger spec "t" "trigger"
-          --          "triggers something" ""
-          --          (\o -> print o >> return o)
+                , trigger spec "t" "trigger"
+                    "triggers something" ""
+                    (\o -> return o{oTriggers = oTriggers o + 1}) `withAttribute` OptAttrAllowMultiple
 
                 ]
                 [
@@ -49,7 +58,7 @@ spec = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
                 , arg spec "ARG2" "the second arg" "the second arg" (\a o -> o{oArgs = oArgs o ++ [a]})
                 ]
 
-tArgs = dfltOpts { oFile = "foo.txt", oThreads = 16, oArgs = ["a","b"] }
+tArgs = dfltOpts {oFile = "foo.txt", oArgs = ["a","b"]}
 merge as z = return (as,z)
 negativeTest as = testBody (Left "ExitFailure 1") as >>= merge as
 positiveTest as os = testBody (Right os) as >>= merge as
@@ -60,10 +69,17 @@ tests = [
   , positiveExitSuccess ["--help"]
   , positiveTest ["a","b","--file=foo.txt"] tArgs
   , positiveTest ["a","b","--file=foo.txt", "--log-file=log.txt"] tArgs{oLogFile="log.txt"}
+  , positiveTest ["a","b","--trigger","--file=foo.txt","-t"] tArgs{oTriggers = 2}
+  , positiveTest ["a","b","-j=2","--file=foo.txt"] tArgs{oThreads = 2}
+  , positiveTest ["a","b","-j2","--file=foo.txt"] tArgs{oThreads = 2}
   , negativeTest ["a","b","c","--file=foo.txt"]
   ]
 
--- testargs: option option --file not set
+run = parseArgs spec dfltOpts
+
+main :: IO ()
+main = runAllTests
+
 runAllTests :: IO ()
 runAllTests = do
   rs <- sequence tests
@@ -73,10 +89,12 @@ runAllTests = do
     forM_ rs $ \(as,z) -> do
       when (not z) $ do
         putStrLn $ "run " ++ show as
+    exitFailure
     else do
       putStrLn "ALL TESTS PASSED"
+      exitSuccess
 
-run = parseArgs spec dfltOpts
+
 
 testBody :: Either String Opts -> [String] -> IO Bool
 testBody ref args = do

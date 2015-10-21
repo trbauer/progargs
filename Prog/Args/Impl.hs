@@ -25,6 +25,7 @@ import Control.Exception
 import Control.Monad
 import Data.Char
 import Data.List
+import Data.Ord
 import Data.Typeable
 import Debug.Trace
 import System.Exit
@@ -33,12 +34,14 @@ import Text.Printf
 
 import qualified System.Console.ANSI as SCA -- from ansi-terminal
 
+
 osFriendlyName :: OptSpec o -> String
 osFriendlyName opt = let notNull = not . null in
   if notNull (osLong opt) then "option --" ++ osLong opt
     else if notNull (osShort opt) then "option -" ++ osShort opt
       else if notNull (osTypeName opt) then "argument " ++ osTypeName opt
         else "argument \"" ++ osDesc opt ++ "\""
+
 
 fmtSpec :: Spec o -> String
 fmtSpec spec = result
@@ -109,6 +112,7 @@ fmtOptSpecExtDescC cws = fmtOptArgSpecExtDescC (fmtOptSpecC cws)
 fmtArgSpecExtDescC :: Int -> Int -> OptSpec o -> String
 fmtArgSpecExtDescC acw = fmtOptArgSpecExtDescC (fmtArgSpecC acw)
 
+
 -- handles both options and arguments
 fmtOptArgSpecExtDescC :: (OptSpec o -> String) -> Int -> OptSpec o -> String
 fmtOptArgSpecExtDescC fmt max_cols oas = fmt oas ++ ext_desc
@@ -116,7 +120,6 @@ fmtOptArgSpecExtDescC fmt max_cols oas = fmt oas ++ ext_desc
         ext_desc
           | null edesc = ""
           | otherwise = "\n" ++ wrapText "    " max_cols edesc
-
 
 
 -- Formats the extended descriptor by tokenizing it and wrapping it
@@ -178,6 +181,7 @@ wrapText ind ncols0 ext_desc = unlines (map fmtLine (lines ext_desc))
                           | isSpaceToken t = "\n" ++ ind ++ extra_ind
                           | otherwise      = "\n" ++ ind ++ extra_ind ++ t
 
+
 tokenize :: String -> [String]
 tokenize = tokens isDelim
   where isDelim c = isSpace c -- || c `elem` ",;.:({<"
@@ -219,6 +223,7 @@ fmtOptShortAndLong os = (short_opt_str, long_opt_str)
 fmtArgSpecC :: Int -> OptSpec o -> String
 fmtArgSpecC cw as = "  " ++ padR cw (osTypeName as) ++ " " ++ osDesc as
 
+
 padR :: Int -> String -> String
 padR w s = s ++ replicate (w - length s) ' '
 
@@ -246,12 +251,14 @@ padR w s = s ++ replicate (w - length s) ' '
 parseArgs :: Spec o -> o -> [String] -> IO o
 parseArgs spec opts as = checkSpec spec >> parseArgs0 spec as (PSt [] 0 []) opts
 
+
 -- options indices and number of arugments set
 data PSt o = PSt {
      stOptsSet :: ![Int]
    , stArgIx :: !Int
    , stTriggers :: ![OptSpec o]
    } deriving (Show)
+
 
 -- parsing loop; takes:
 -- (1) spec
@@ -280,11 +287,38 @@ parseArgs0 spec (a:as) st o =
    ('-':sarg)     -> handleOpt osShort "-"  sarg
    _ -> handleArg a as
   where badArg = specBadArg spec
+
+        unrecognizedArg k = badArg Nothing $ "unrecognized option " ++ k ++ hints_sfx
+              where hints_sfx
+                      | length k < 2 = ""
+                      | otherwise =
+                        case nub (similarSymbols k) of
+                          [] -> ""
+                          [s] -> "; did you mean " ++ s ++ "?"
+                          [s1,s2] -> "; did you mean " ++ s1 ++ " or " ++ s2 ++ "?"
+                          [s1,s2,s3] -> "; did you mean " ++ s1 ++ ", " ++ s2 ++ " or " ++ s3 ++ "?"
+                          _ -> "" -- too many
+
+                    similarSymbols :: String -> [String]
+                    similarSymbols k = rmDash ++ addDash ++ typos k
+                      where rmDash = filter (drop 1 k==) (short ++ long) :: [String]
+                            addDash = filter (('-':k)==) (short ++ long) :: [String]
+
+                            typos :: String -> [String]
+                            -- take the top 3 and only those above 2/3 matching
+                            typos k = map fst (takeWhile ((>=0.667) . snd) top3)
+                              where allOpts = filter (not . null) (map osShort opts ++ map osLong opts) -- no - or -- prefixing (same for k)
+                                    top3 = take 3 $ reverse $ sortBy (comparing snd) $ map (\o -> (o,similarity k o)) (long ++ short)
+
+                            optSyms by pfx = map (pfx++) . filter (not . null) . map by $ opts
+                            short = optSyms osShort "-"
+                            long = optSyms osLong "--"
+
         opts = specOpts spec
         args = specArgs spec
         aix = stArgIx st
 
-        shortOpts = filter (flip osHasAttr OptAttrAllowShortSyntax) opts
+        shortOpts = filter (flip osHasAttr OptAttrAllowFusedSyntax) opts
 
         -- handleOpt :: (OptSpec o -> String) -> String -> String -> IO o
         handleOpt prj dashes opt_str =
@@ -320,7 +354,9 @@ parseArgs0 spec (a:as) st o =
         handleFlag prj dashes k as = do
           mos <- findOpSpec spec (\os -> prj os == k) (stOptsSet st)
           case mos of
-            Nothing -> badArg Nothing $ "unrecognized option " ++ dashes ++ k
+            Nothing -> unrecognizedArg (dashes ++ k)
+
+
             Just (ix,OptSpec _ _ _ _ _ _ _ (Just set_flag) _) ->
               -- It's a pure flag --foo
               set_flag o >>= parseArgs0 spec as (st{stOptsSet = ix : stOptsSet st})
@@ -336,7 +372,7 @@ parseArgs0 spec (a:as) st o =
           -- --fo
           mos <- findOpSpec spec (\os -> prj os == k) (stOptsSet st)
           case mos of
-            Nothing -> badArg Nothing $ "unrecognized option " ++ dashes ++ k
+            Nothing -> unrecognizedArg (dashes ++ k)
             Just (ix,os@(OptSpec _ _ _ _ _ _ _ _ (Just set_arg))) -> set_arg v o >>= parseArgs0 spec as (st{stOptsSet = ix : stOptsSet st})
             Just (_,os) -> badArg (Just os) $ dashes ++ k ++ " expects " ++ osTypeName os
         -- handleArg :: String -> IO a
@@ -350,6 +386,16 @@ parseArgs0 spec (a:as) st o =
                     OptSpec _ _ _ _ _ _ _ _ (Just set_arg) -> set_arg astr o >>= parseArgs0 spec as (st{ stArgIx = ix })
                     _ -> badSpec $ "argument " ++ show ix ++ " must have a valid osSetUnary"
 
+similarity :: [Char] -> [Char] -> Float
+similarity s1 s2 = fromIntegral (countMatching s1 s2) / len
+  where len = fromIntegral (max (length s1) (length s2))
+        countMatching [] _  = 0
+        countMatching _  [] = 0
+        countMatching (c1:cs1) (c2:cs2)
+          | c1 == c2 = 1 + countMatching cs1 cs2
+          | otherwise = countMatching cs1 cs2
+
+
 findOpSpec :: Spec o -> (OptSpec o -> Bool) -> [Int] -> IO (Maybe (Int,OptSpec o))
 findOpSpec spec@(Spec _ _ _ badArg _ _) pr set = go (specOpts spec) 0
   where go []     _ = return Nothing
@@ -361,6 +407,7 @@ findOpSpec spec@(Spec _ _ _ badArg _ _) pr set = go (specOpts spec) 0
 
 printUsage :: Spec o -> IO ()
 printUsage spec = hPutStr stdout (fmtSpec spec) >> hFlush stdout
+
 
 instance Show (OptSpec o) where
   show (OptSpec snm lnm desc exdesc tynm attrs mderiv msetfl msetu) =
