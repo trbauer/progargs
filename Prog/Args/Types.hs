@@ -74,16 +74,21 @@ data OptAttr =
                              -- scales by 1024*1024; or 'g'/'G' which is *1024
                              -- more; if this options is set, we do not
                              -- recognize said suffixes
+-- | OptExtGroup String      -- This allows one to define an option as part of an
+--                           -- option group.  For instance, we could use "-X" to
+--                           -- group all "extended" options as a group.
+--                           -- -X or -hX would print the help for that set.
+-- TODO: HAVE TO WORRY ABOUT AMBIGUITY ...
+--
 -- | OptAttrHidden           -- hidden options are not shown in the help
 --                           -- message
--- For now I can implement eager triggers as a combinator
--- like 'opt'.
---  | OptAttrTrigger           -- trigger options (and arguments) are processed
-                             -- at the end of parsing all other arguments
-                             -- they are invoked at that time with their
-                             -- arguments; triggers typically terminate
-                             -- processing with 'exitSuccess' or 'exitFailure',
-                             -- but this is is not strictly necessary.
+-- | OptExtended             -- Extended options are a special option group
+--                           -- that is not fully shown in the help screen;
+--                           -- all are prefixed with "-X" and just "-X" prints
+--                           -- help just for the extended options; this generally
+--                           -- corresponds to less common options.
+--   OptExperimental         -- Same as extended exception the prefix is "-XX"
+--
   deriving (Show,Eq)
 
 -- Represents the format of option to parse.
