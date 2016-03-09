@@ -453,14 +453,15 @@ checkSpec spec = do
 
   -- ensure unique names
   let nameSet = map osShort opts ++ map osLong opts
-      dups = nameSet \\ nub nameSet
+      -- don't count null strings: ""
+      dups = filter (not . null) (nameSet \\ nub nameSet)
   when (not (null dups)) $
     badSpec $ "duplicated option names " ++ show dups
 
 -- indicates an internal problem with the user's specification
 badSpec :: String -> IO a
-badSpec msg = hPutStrLnRed stderr ("Util.Args: ARGUMENT SPEC DEFINITION ERROR\n" ++
-                                    "NOTE: This indicates a problem with definition of Spec, not the input to that spec.\n" ++
+badSpec msg = hPutStrLnRed stderr ("Prog.Args.Impl: ARGUMENT SPEC DEFINITION ERROR\n" ++
+                                    "NOTE: This indicates a problem with definition of progargs spec, not the command-line input to that spec.\n" ++
                                     msg) >> exitFailure
 
 -------------------------------------------------------------------------------

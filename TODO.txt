@@ -26,16 +26,17 @@ an instance, we prefer that insted?)
 
 
 * Support option groups
-    -pH -ptm0, -Xfoo, -Xbar
-     [  group "X" "Experimental Options") [
+    -pH -ptm0, -Xfoo, -Xbar -WaKus
+     [  (group "X" "Experimental Options") [
           opt "" "Xfoo" ...
         , flag "" "Xbar" ...
         ]
-        group "p" "Profile Options") [
+        (group "p" "Profile Options") [
            flag "" ... -- defines flag for -p (-h=p prints info on both p and p's children)
         ]
+        (group "Wa" "Workarounds") [
+        ]
      ]
-
     * can put these in with all options
        - make opt and flag return an OptElem o
           data OptElem o = OptElemSpec (OptSpec o) | OptElemGroup (OptGroup o)
@@ -43,3 +44,10 @@ an instance, we prefer that insted?)
                give it children OptSpec's
                the default meaning for a group optspec is trigger to
                print the help on that option and exit
+      gives the group some AST information (so we know to treat it specially)
+      => Usage shows "-X..."
+      => Typing "-X" shows usage specific
+      => malformed input with a prefixed group -Xeror
+         shows usage of -X options rather than global
+         (maybe "did you mean will be good enough)
+
