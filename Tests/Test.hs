@@ -11,8 +11,9 @@ import System.IO
 import System.Exit
 
 data Opts = Opts {
-    oVerbose :: Bool
+    oVerbosity :: Int
   , oThreads :: Int
+  , oCoeff :: Double
   , oFile :: FilePath
   , oLogFile :: FilePath
   , oArgs :: [String]
@@ -20,65 +21,171 @@ data Opts = Opts {
   } deriving (Show, Eq)
 
 dfltOpts :: Opts
-dfltOpts = Opts False 8 "" "" [] 0
+dfltOpts = Opts 0 8 0 "" "" [] 0
 
-spec :: Spec Opts
-spec = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
-                  flag spec "v" "verbose"
+goodSpec1 :: Spec Opts
+goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
+                  flag goodSpec1 "v" "verbose"
                     "the verbosity level" ""
-                    (\o -> (o {oVerbose = True}))
+                    (\o -> (o {oVerbosity = 1}))
 
-                , opt spec "j" "parallel-jobs" "INT"
+                , opt goodSpec1 "j" "parallel-jobs" "INT"
                     "number of parallel jobs to execute"
                     "tests are built and executed with this level of parallelism"
                     (\i o -> o{oThreads = i})
-                      `withDefault` (\o -> o{oThreads = oThreads dfltOpts})
-                      `withAttribute` OptAttrAllowFusedSyntax
+                      #= (\o -> o{oThreads = oThreads dfltOpts})
+                      # OptAttrAllowFusedSyntax
 
-                , opt spec "f" "file" "PATH"
+                , opt goodSpec1 "f" "file" "PATH"
                     "The file to read from" "This is the file to read from"
                     (\f o -> (o {oFile = f}))
 
-                , opt spec "F" "filt" "FILTER"
-                    "A special filter" "Hmm"
-                    (\f o -> (o {oFile = f}))
-                      `withAttribute` OptAttrAllowUnset
+                , opt goodSpec1 "c" "coeff" "DBL"
+                    "A special filter value" "Coefficient"
+                    (\c o -> (o {oCoeff = c})) #+ [OptAttrAllowUnset, OptAttrAllowFusedSyntax]
 
-                , opt spec "l" "log-file" "PATH"
+                , opt goodSpec1 "l" "log-file" "PATH"
                     "an optional logfile" "Yes, it's optional"
-                    (\f o -> (o {oLogFile = f})) `withAttribute` OptAttrAllowUnset
+                    (\f o -> (o {oLogFile = f})) # OptAttrAllowUnset
 
-                , trigger spec "t" "trigger"
+                , triggerIO goodSpec1 "t" "trigger"
                     "triggers something" ""
-                    (\o -> return o{oTriggers = oTriggers o + 1}) `withAttribute` OptAttrAllowMultiple
+                    (\o -> return o{oTriggers = oTriggers o + 1}) # OptAttrAllowMultiple
 
+                , optGroup goodSpec1 "X"
+                    "experimental options" "" [
+                      -- -Xd
+                      flag goodSpec1 "d" ""
+                        "the verbosity level" ""
+                        (\o -> (o {oVerbosity = 2}))
+                      -- --Xquiet
+                    , flag goodSpec1 "" "quiet"
+                        "the verbosity level" ""
+                        (\o -> (o {oVerbosity = -1}))
+                      -- -Xv=... and -Xverbosity=...
+                    , opt goodSpec1 "v" "verbosity" "INT"
+                        "manually set verbosity" "manually set verbosity"
+                        (\a o -> (o {oVerbosity = a})) # OptAttrAllowUnset
+                    ]
                 ]
                 [
-                  arg spec "ARG1" "the arg" "long arg desc" (\a o -> o{oArgs = oArgs o ++ [a]})
-                , arg spec "ARG2" "the second arg" "the second arg" (\a o -> o{oArgs = oArgs o ++ [a]})
+                  arg goodSpec1 "ARG1" "the arg" "long arg desc"
+                    (\a o -> o{oArgs = oArgs o ++ [a]})
+                , arg goodSpec1 "ARG2" "the second arg" "the second arg"
+                    (\a o -> o{oArgs = oArgs o ++ [a]})
+                ]
+goodSpec2 :: Spec Opts
+goodSpec2 =
+  mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [][
+                  arg goodSpec2 "ARG1" "the arg" "long arg desc"
+                    (\a o -> o{oArgs = oArgs o ++ [a]})
+                , arg goodSpec2 "ARG2" "the second arg" "the second arg"
+                    (\a o -> o{oArgs = oArgs o ++ [a]}) # OptAttrAllowUnset
+                ]
+goodSpec3 :: Spec Opts
+goodSpec3 =
+  mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [][
+                  arg goodSpec3 "ARG1" "the arg" "long arg desc"
+                    (\a o -> o{oArgs = oArgs o ++ [a]})
+                , arg goodSpec3 "ARG2" "the second arg" "the second arg"
+                    (\a o -> o{oArgs = oArgs o ++ [a]}) #<- \o -> return o{oArgs = oArgs o ++ ["DEFAULT"]}
                 ]
 
-tArgs = dfltOpts {oFile = "foo.txt", oArgs = ["a","b"]}
-merge as z = return (as,z)
-negativeTest as = testBody (Left "ExitFailure 1") as >>= merge as
-positiveTest as os = testBody (Right os) as >>= merge as
-positiveExitSuccess as = testBody (Left "ExitSuccess") as >>= merge as
-tests = [
-    negativeTest []
-  , positiveExitSuccess ["-h"]
-  , positiveExitSuccess ["--help"]
-  , positiveTest ["a","b","--file=foo.txt"] tArgs
-  , positiveTest ["a","b","--file=foo.txt", "--log-file=log.txt"] tArgs{oLogFile="log.txt"}
-  , positiveTest ["a","b","--trigger","--file=foo.txt","-t"] tArgs{oTriggers = 2}
-  , positiveTest ["a","b","-j=2","--file=foo.txt"] tArgs{oThreads = 2}
-  , positiveTest ["a","b","-j2","--file=foo.txt"] tArgs{oThreads = 2}
-  , negativeTest ["a","b","c","--file=foo.txt"]
+
+badSpec1 :: Spec Opts
+badSpec1 =
+  mkSpecsWithHelpOpt "badSpec1" "tests Args package: badSpec1" 80 [
+      flag badSpec1 "X" "oops"
+        "conflicts" ""
+        (\o -> (o {oVerbosity = 1})) # OptAttrAllowUnset
+        , optGroup badSpec1 "X"
+            "experimental options" "" [
+              -- -Xd
+              flag badSpec1 "d" ""
+                "the verbosity level" ""
+                (\o -> (o {oVerbosity = 2})) # OptAttrAllowUnset
+              -- --Xquiet
+            , flag badSpec1 "" "quiet"
+                "the verbosity level" ""
+                (\o -> (o {oVerbosity = -1})) # OptAttrAllowUnset
+              -- -Xop
+            , opt badSpec1 "op" "override-path" "PATH"
+                "an optional logfile" "Yes, it's optional"
+                (\f o -> (o {oLogFile = "<override>/" ++ f})) # OptAttrAllowUnset
+            ]
+  ]
+  [
   ]
 
-run = parseArgs spec dfltOpts
+badSpec2 :: Spec Opts
+badSpec2 =
+  mkSpecsWithHelpOpt "testargs2" "tests Args package: badSpec2" 80 [
+      flag badSpec2 "Xfoo" "oops"
+        "conflicts" ""
+        (\o -> (o {oVerbosity = 1}))
+        , optGroup badSpec2 "X"
+            "experimental options" "" [
+              flag badSpec2 "foo" ""
+                "the verbosity level" ""
+                (\o -> (o {oVerbosity = 2}))
+            ]
+  ]
+  [
+  ]
+
+merge as z = return (show as,z)
+mergeS s z = return (s,z)
+
+positiveEq s as os = testBody s (Right os) as >>= merge as
+positiveExitSuccess s as = testBody s (Left "ExitSuccess") as >>= merge as
+negativeExits1 s as = testBody s (Left "ExitFailure 1") as >>= merge as
+negativeSpecErr s nm = testNegativeSpecErrorBody s nm >>= mergeS ("<" ++ nm ++ ">")
+
+tests :: [IO (String,Bool)]
+tests = [
+    negativeExits1 goodSpec1 []
+  , positiveExitSuccess goodSpec1 ["-h"]
+  , positiveExitSuccess goodSpec1 ["--help"]
+  , positiveEq goodSpec1 ["a","b","--file=foo.txt"] tArgs
+  , positiveEq goodSpec1 ["a","b","--file=foo.txt", "--log-file=log.txt"] tArgs{oLogFile="log.txt"}
+  , positiveEq goodSpec1 ["a","b","--trigger","--file=foo.txt","-t"] tArgs{oTriggers = 2}
+  , positiveEq goodSpec1 ["a","b","-j=2","--file=foo.txt"] tArgs{oThreads = 2}
+  , positiveEq goodSpec1 ["a","b","-j2","--file=foo.txt"] tArgs{oThreads = 2}
+  , positiveEq goodSpec1 ["a","b","-j2k","--file=foo.txt"] tArgs{oThreads = 2*1024}
+  , positiveEq goodSpec1 ["a","b","-c3.141","--file=foo.txt"] tArgs{oCoeff = 3.141}
+  , positiveEq goodSpec1 ["a","b","-c3.141M","--file=foo.txt"] tArgs{oCoeff = 3.141*1024*1024}
+  , negativeExits1 goodSpec1 ["a","b","c","--file=foo.txt"]
+  , positiveExitSuccess goodSpec1 ["-X"]
+  , positiveExitSuccess goodSpec1 ["-h=X"]
+  , positiveExitSuccess goodSpec1 ["a","b","--file=foo.txt","-X"]
+  -- groups
+  , positiveEq goodSpec1 ["a","b","--Xquiet","--file=foo.txt"] tArgs{oVerbosity = -1}
+  , positiveEq goodSpec1 ["a","b","-Xv=14","--file=foo.txt"] tArgs{oVerbosity = 14}
+  , positiveEq goodSpec1 ["a","b","-Xv=-15","--file=foo.txt"] tArgs{oVerbosity = -15}
+  , positiveEq goodSpec1 ["a","b","--Xverbosity=16","--file=foo.txt"] tArgs{oVerbosity = 16}
+  -- defaults
+  , positiveEq goodSpec2 ["a","b"] (tArgsW ["a","b"])       -- normal
+  , positiveEq goodSpec2 ["a"] (tArgsW ["a"])               -- default
+  , positiveEq goodSpec3 ["a","b"] (tArgsW ["a","b"])       -- normal
+  , positiveEq goodSpec3 ["a"] (tArgsW ["a","DEFAULT"]) -- default
+  -- bad specs
+  , negativeSpecErr badSpec1 "overlap opt and group"
+  , negativeSpecErr badSpec2 "overlap -Xfoo"
+  ]
+tArgs = dfltOpts {oFile = "foo.txt", oArgs = ["a","b"]}
+tArgsW as = dfltOpts {oArgs = as}
+
+
+
 
 main :: IO ()
 main = runAllTests
+
+
+-- for interactive testing
+run :: [String] -> IO ()
+run = (>>= print) . parseArgs goodSpec1 dfltOpts
+
 
 runAllTests :: IO ()
 runAllTests = do
@@ -96,8 +203,8 @@ runAllTests = do
 
 
 
-testBody :: Either String Opts -> [String] -> IO Bool
-testBody ref args = do
+testBody :: Spec Opts -> Either String Opts -> [String] -> IO Bool
+testBody spec ref args = do
   let handler :: SomeException -> IO (Either String Opts)
       handler e = return $ Left (show e)
 
@@ -105,12 +212,12 @@ testBody ref args = do
   putStrLn ""
   putStrLn $ "  " ++ show args ++ " -> "
   let passed = putStrLn "ok" >> return True
-      failed msg = hPutStrLnRed stdout msg >> return False
+      failed msg = hPutStrLnRed stdout ("FAILED: " ++ msg) >> return False
   act <- parse `catch` handler
   case (act,ref) of
     (Left aerr,Left rerr)
       | rerr `isInfixOf` aerr -> passed
-      | otherwise -> failed $ "error mismatch: " ++ aerr
+      | otherwise -> failed $ "mismatch: " ++ aerr
     (Left aerr,_) -> failed $ "unexpected error: " ++ show aerr
     (Right _,Left _) -> failed $ "unexpected pass"
     (Right aopts, Right ropts)
@@ -118,3 +225,19 @@ testBody ref args = do
                                      "GOT:      " ++ show aopts ++ "\n" ++
                                      "EXPECTED: " ++ show ropts
       | otherwise -> passed
+
+
+testNegativeSpecErrorBody :: Spec Opts -> String -> IO Bool
+testNegativeSpecErrorBody spec name = do
+  let passed = putStrLn "ok" >> return True
+      failed msg = hPutStrLnRed stdout ("FAILED: " ++ msg) >> return False
+  putStrLn $ "  " ++ show name ++ " -> "
+  let handler :: SomeException -> IO Bool
+      handler e
+        | "ExitFailure 1" `isInfixOf` show e = passed
+        | otherwise = failed $ "wrong error: " ++ show e
+  let test = do
+        a <- parseArgs spec dfltOpts []
+        print a
+        failed "parseArgs didn't exit with an error"
+  test `catch` handler

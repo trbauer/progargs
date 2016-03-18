@@ -1,3 +1,6 @@
+* get terminal width via native code
+  - MSDN console API
+  - terminal info for unix
 * Preparse make an options to call handlers in specfication-order.
   I.e. given
      [  flag .. "a" ..
@@ -7,11 +10,9 @@
    we still process -a before -b
   How to consider options in this....?
 
+- constraints?
 * Mutexes
-
 * Partial orderings (e.g. must parse x after y)
-
-* Index arguments (give them a positional ordering)
 
 * Come up with a [String] example and [Int] example
    (has to be derived)

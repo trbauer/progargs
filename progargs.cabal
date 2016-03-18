@@ -10,7 +10,7 @@ name:                progargs
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.2.0.1
+version:             0.3.0.0
 -- 0.2.0.1 fixed false positive bug with multiple args using ""
 
 -- A short (one-line) description of the package.
@@ -75,3 +75,4 @@ Test-Suite  test-progargs
     build-depends:
         base >=4.8 && <4.9
       , ansi-terminal >=0.6 && <0.7
+

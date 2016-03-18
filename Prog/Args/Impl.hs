@@ -10,6 +10,7 @@ module Prog.Args.Impl(
 
   -- externally used (Util.Arg)
   , osFriendlyName
+  , ossFlatten
 
   -- lower level IO
   , hPutStrRed, hPutStrLnRed
@@ -76,17 +77,12 @@ fmtSpec spec = result
           | otherwise = "ARGS"
           where short_line = intercalate " " (map fmtArgName args)
                 fmtArgName as
-                  | as `osHasAttr` OptAttrAllowUnset = "[" ++ type_str ++ "]"
+                  | osHasAttr OptAttrAllowUnset as = "[" ++ type_str ++ "]"
                   | otherwise = type_str
                   where type_str = if null s then "ARG" else s
                           where s = osTypeName as
         -- the detail section for options
-        opts_overview = concatMap fmtOs opts
-          where fmtOs os -- only suffix with \n if the description doesn't include it
-                  | null s         = ""
-                  | last s == '\n' = s
-                  | otherwise      = s ++ "\n"
-                  where s = fmtOptSpecC (computeOptColumnWidths spec) os
+        opts_overview = fmtOptsOverview opts
         -- the detail section of the args
         args_overview = concatMap fmtAs args
           where fmtAs as -- only suffix with \n if the description doesn't include it
@@ -95,15 +91,28 @@ fmtSpec spec = result
                   | otherwise      = s ++ "\n"
                   where s = fmtArgSpecC (computeArgColumnWidth  spec) as
 
+-- this gets reused in the help
+fmtOptsOverview :: [OptSpec o] -> String
+fmtOptsOverview os = concatMap fmtOs os
+  where fmtOs o -- only suffix with \n if the description doesn't include it
+          | null s         = ""
+          | last s == '\n' = s
+          | otherwise      = s ++ "\n"
+          where s = fmtOptSpecC (computeOptsColumnWidths os) o
 
 computeOptColumnWidths :: Spec o -> (Int,Int)
-computeOptColumnWidths spec = (maximum ss, maximum ls)
-  where (ss,ls) = unzip $ map ((length *** length) . fmtOptShortAndLong) (specOpts spec)
+computeOptColumnWidths spec = computeOptsColumnWidths (specOpts spec)
+
+computeOptsColumnWidths :: [OptSpec o] -> (Int,Int)
+computeOptsColumnWidths os = (maximum ss, maximum ls)
+  where (ss,ls) = unzip $ map ((length *** length) . fmtOptShortAndLong) os
 computeArgColumnWidth :: Spec o -> Int
 computeArgColumnWidth spec = maximum (map (length . osTypeName) (specOpts spec))
 
 fmtOptSpecExtDesc :: Spec o -> OptSpec o -> String
-fmtOptSpecExtDesc spec = fmtOptSpecExtDescC (computeOptColumnWidths spec) (specMaxCols spec)
+fmtOptSpecExtDesc spec os
+  | osIsGroup os = fmtOptSpecExtDescC (computeOptsColumnWidths (osMembers os)) (specMaxCols spec) os
+  | otherwise = fmtOptSpecExtDescC (computeOptColumnWidths spec) (specMaxCols spec) os
 fmtArgSpecExtDesc ::  Spec o -> OptSpec o -> String
 fmtArgSpecExtDesc spec = fmtArgSpecExtDescC (computeArgColumnWidth spec) (specMaxCols spec)
 
@@ -115,11 +124,13 @@ fmtArgSpecExtDescC acw = fmtOptArgSpecExtDescC (fmtArgSpecC acw)
 
 -- handles both options and arguments
 fmtOptArgSpecExtDescC :: (OptSpec o -> String) -> Int -> OptSpec o -> String
-fmtOptArgSpecExtDescC fmt max_cols oas = fmt oas ++ ext_desc
-  where edesc = osExtDesc oas
-        ext_desc
+fmtOptArgSpecExtDescC fmt max_cols oas
+  | osIsGroup oas = "OPTION GROUP: " ++ osDesc oas ++ ": -" ++ osShort oas ++ "...\n" ++ fmtOptsOverview (osMembers oas)
+  | otherwise = fmt oas ++ ext_desc
+  where ext_desc
           | null edesc = ""
           | otherwise = "\n" ++ wrapText "    " max_cols edesc
+          where edesc = osExtDesc oas
 
 
 -- Formats the extended descriptor by tokenizing it and wrapping it
@@ -194,8 +205,8 @@ tokens p  (a:as) = span (p a) [a] as
           | otherwise = reverse spn : span (not z) [a] as
 
 fmtOptSpecC :: (Int,Int) -> OptSpec o -> String
-fmtOptSpecC (sw,lw) os = line_prefix ++ desc_str
-  where line_prefix = "  " ++ padR sw short_opt_str ++ " " ++ padR lw long_opt_str ++ " "
+fmtOptSpecC (sw,lw) os = opt_symbols ++ desc_str
+  where opt_symbols = "  " ++ padR sw short_opt_str ++ " " ++ padR lw long_opt_str ++ " "
         desc_str = osDesc os
         (short_opt_str,long_opt_str) = fmtOptShortAndLong os
 fmtOptShortAndLong :: OptSpec o -> (String,String)
@@ -215,11 +226,15 @@ fmtOptShortAndLong os = (short_opt_str, long_opt_str)
             Nothing -> True
             _ -> False
         type_str :: String
-        type_str = case osSetUnary os of
-                     Just _ -> case osTypeName os of
-                                "" -> "=..."
-                                t -> "=" ++ t
-                     Nothing -> ""
+        type_str =
+            case osSetUnary os of
+             Just _ -> case osTypeName os of
+                        "" -> "=..."
+                        t -> "=" ++ t
+             Nothing
+              | is_grp -> "*"
+              | otherwise -> "..."
+              where is_grp = not (null (osMembers os))
 fmtArgSpecC :: Int -> OptSpec o -> String
 fmtArgSpecC cw as = "  " ++ padR cw (osTypeName as) ++ " " ++ osDesc as
 
@@ -249,8 +264,9 @@ padR w s = s ++ replicate (w - length s) ' '
 --
 -- After processing all tokens we
 parseArgs :: Spec o -> o -> [String] -> IO o
-parseArgs spec opts as = checkSpec spec >> parseArgs0 spec as (PSt [] 0 []) opts
-
+parseArgs spec opts as =
+    checkSpec spec os_all >> parseArgs0 spec os_all as (PSt [] 0 []) opts
+  where os_all = ossFlatten (specOpts spec)
 
 -- options indices and number of arugments set
 data PSt o = PSt {
@@ -262,11 +278,12 @@ data PSt o = PSt {
 
 -- parsing loop; takes:
 -- (1) spec
--- (2) the command line
--- (3) set-state (which options are are set, which arg index we are on)
--- (4) o: the user-defined options type
-parseArgs0 :: Spec o -> [String] -> PSt o -> o -> IO o
-parseArgs0 spec []     (PSt oset aix _) o0 = do
+-- (2) the flattened option set
+-- (3) the command line
+-- (4) set-state (which options are are set, which arg index we are on)
+-- (5) o: the user-defined options type
+parseArgs0 :: Spec o -> [OptSpec o] -> [String] -> PSt o -> o -> IO o
+parseArgs0 spec _ []     (PSt oset aix _) o0 = do
   -- parsing done, now set any derived options
   let opts = specOpts spec
       args = specArgs spec
@@ -281,7 +298,7 @@ parseArgs0 spec []     (PSt oset aix _) o0 = do
   let notSet = [(0 :: Int) .. length opts - 1] \\ sort oset
   o1 <- foldM (accUnsetOpt opts) o0 notSet
   foldM (accUnsetOpt args) o1 [aix .. length args - 1]
-parseArgs0 spec (a:as) st o =
+parseArgs0 spec os_all (a:as) st o =
   case a of
    ('-':'-':larg) -> handleOpt osLong "--" larg
    ('-':sarg)     -> handleOpt osShort "-"  sarg
@@ -318,7 +335,7 @@ parseArgs0 spec (a:as) st o =
         args = specArgs spec
         aix = stArgIx st
 
-        shortOpts = filter (flip osHasAttr OptAttrAllowFusedSyntax) opts
+        shortOpts = filter (osHasAttr OptAttrAllowFusedSyntax) opts
 
         -- handleOpt :: (OptSpec o -> String) -> String -> String -> IO o
         handleOpt prj dashes opt_str =
@@ -352,28 +369,30 @@ parseArgs0 spec (a:as) st o =
                     where f k_f = dashes ++ k_f ++ "=" ++ drop (length k_f) k
         -- handleFlag :: (OptSpec o -> String) -> String -> String -> [String] -> IO o
         handleFlag prj dashes k as = do
-          mos <- findOpSpec spec (\os -> prj os == k) (stOptsSet st)
+          mos <- findOpSpec spec os_all (\os -> prj os == k) (stOptsSet st)
           case mos of
             Nothing -> unrecognizedArg (dashes ++ k)
-
-
-            Just (ix,OptSpec _ _ _ _ _ _ _ (Just set_flag) _) ->
+            Just (ix,OptSpec _ _ _ _ _ _ _ (Just set_flag) _ _ _) ->
               -- It's a pure flag --foo
-              set_flag o >>= parseArgs0 spec as (st{stOptsSet = ix : stOptsSet st})
-            Just (ix,os@(OptSpec _ _ _ _ _ _ _ Nothing (Just set_arg))) -> do
+              set_flag o >>= parseArgs0 spec os_all as (st{stOptsSet = ix : stOptsSet st})
+            Just (ix,os@(OptSpec _ _ _ _ _ _ _ Nothing (Just set_arg) _ _)) -> do
               -- It's in the form of: --foo arg
               if null as then
                 badArg (Just os) $ dashes ++ k ++ " expects " ++ osTypeName os
                 else handleUnry prj dashes k (head as) (tail as)
-            Just (_,os) -> badArg (Just os) $ dashes ++ k ++ " does not expect argument"
+            Just (_,os)
+              -- e.g. -X means show help on -X
+              | osIsGroup os -> putStr (fmtOptSpecExtDesc spec os) >> exitSuccess
+              | otherwise -> badArg (Just os) $ dashes ++ k ++ " does not expect argument"
 
         -- handleUnry :: (OptSpec o -> String) -> String -> String -> String -> [String] -> IO o
         handleUnry prj dashes k v as = do
           -- --fo
-          mos <- findOpSpec spec (\os -> prj os == k) (stOptsSet st)
+          mos <- findOpSpec spec os_all (\os -> prj os == k) (stOptsSet st)
           case mos of
             Nothing -> unrecognizedArg (dashes ++ k)
-            Just (ix,os@(OptSpec _ _ _ _ _ _ _ _ (Just set_arg))) -> set_arg v o >>= parseArgs0 spec as (st{stOptsSet = ix : stOptsSet st})
+            Just (ix,os@(OptSpec _ _ _ _ _ _ _ _ (Just set_arg) _ _)) ->
+              set_arg v o >>= parseArgs0 spec os_all as (st{stOptsSet = ix : stOptsSet st})
             Just (_,os) -> badArg (Just os) $ dashes ++ k ++ " expects " ++ osTypeName os
         -- handleArg :: String -> IO a
         handleArg astr as
@@ -383,8 +402,18 @@ parseArgs0 spec (a:as) st o =
           | otherwise = badArg Nothing $ astr ++ ": too many arguments"
           where handleArgSpec a ix = -- ix is the next index (0-based for !!); also the 1-based index of this argument
                   case a of
-                    OptSpec _ _ _ _ _ _ _ _ (Just set_arg) -> set_arg astr o >>= parseArgs0 spec as (st{ stArgIx = ix })
+                    OptSpec _ _ _ _ _ _ _ _ (Just set_arg) _ _ ->
+                      set_arg astr o >>= parseArgs0 spec os_all as (st{ stArgIx = ix })
                     _ -> badSpec $ "argument " ++ show ix ++ " must have a valid osSetUnary"
+
+ossFlatten :: [OptSpec o] -> [OptSpec o]
+ossFlatten = go
+  where go [] = []
+        go (os:oss)
+          | osIsGroup os = [os] ++ osMembers os ++ go oss
+          | otherwise = os : go oss
+
+
 
 similarity :: [Char] -> [Char] -> Float
 similarity s1 s2 = fromIntegral (countMatching s1 s2) / len
@@ -396,40 +425,25 @@ similarity s1 s2 = fromIntegral (countMatching s1 s2) / len
           | otherwise = countMatching cs1 cs2
 
 
-findOpSpec :: Spec o -> (OptSpec o -> Bool) -> [Int] -> IO (Maybe (Int,OptSpec o))
-findOpSpec spec@(Spec _ _ _ badArg _ _) pr set = go (specOpts spec) 0
+findOpSpec :: Spec o -> [OptSpec o] -> (OptSpec o -> Bool) -> [Int] -> IO (Maybe (Int,OptSpec o))
+findOpSpec spec@(Spec _ _ _ badArg _ _) os_all pr set = go os_all 0
   where go []     _ = return Nothing
         go (o:os) i
           | pr o = if not multi && i `elem` set then badArg (Just o) $ osFriendlyName o ++ " already set"
                     else return $ Just (i,o)
           | otherwise = go os (i+1)
-          where multi = OptAttrAllowMultiple `elem` osAttrs o
+          where multi = osHasAttr OptAttrAllowMultiple o
 
 printUsage :: Spec o -> IO ()
 printUsage spec = hPutStr stdout (fmtSpec spec) >> hFlush stdout
 
 
-instance Show (OptSpec o) where
-  show (OptSpec snm lnm desc exdesc tynm attrs mderiv msetfl msetu) =
-    "OptSpec {\n" ++
-    "  osShort = " ++ show snm ++ ",\n" ++
-    "  osLong = " ++ show lnm ++ ",\n" ++
-    "  osTypeName = " ++ show tynm ++ ",\n" ++
-    "  osDesc = " ++ show desc ++ ",\n" ++
-    "  osExtDesc = " ++ show exdesc ++ ",\n" ++
-    "  osAttrs = " ++ show attrs ++ ",\n" ++
-    "  osDerived = " ++ showM mderiv ++ ",\n" ++
-    "  osSetFlag = " ++ showM msetfl ++ ",\n" ++
-    "  osSetUnary = " ++ showM msetu ++ "\n" ++
-    "}"
-    where showM (Just _) = "Just (...function...)"
-          showM _ = "Nothing"
-
-checkSpec :: Spec o -> IO ()
-checkSpec spec = do
-  let opts = specOpts spec
-      args = specArgs spec
+checkSpec :: Spec o -> [OptSpec o] -> IO ()
+checkSpec spec opts = do
+  let args = specArgs spec
       notNull = not . null
+  -- forM_ opts $ \o -> do
+  --  print o
 
   -- check each option
   forM_ (zip [(0 ::Int) ..] opts) $ \(ix,os) -> do

@@ -11,7 +11,7 @@ import Data.Typeable
 class OptVal v where
   ovTypeName :: v -> String
   ovFormat   :: v -> String
-  ovParse    :: OptSpec o -> String -> (Either String v)
+  ovParse    :: OptSpec o -> String -> Either String v
 
 instance OptVal Bool where
   ovTypeName _ = "Bool"
@@ -73,6 +73,17 @@ instance OptVal Word64 where
   ovFormat     = show
   ovParse      = parseNum
 
+instance OptVal Float where
+  ovTypeName _ = "Float"
+  ovFormat     = show
+  ovParse      = parseNum
+
+instance OptVal Double where
+  ovTypeName _ = "Double"
+  ovFormat     = show
+  ovParse      = parseNum
+
+
 -- instance (OptVal v1,OptVal v2) => OptVal (v1,v2) where
 --  ovTypeName (v1,v2) = "(" ++ ovTypeName v1 ++ "," ++ ovTypeName v2 ++ ")"
 --  ovFormat   (v1,v2) = "(" ++ ovFormat v1 ++ "," ++ ovFormat v2 ++ ")"
@@ -92,7 +103,7 @@ parseNum o s = do
           _ | c `elem` "kK" -> Right $ 1024 * x
             | c `elem` "mM" -> Right $ 1024 * 1024 * x
             | c `elem` "gG" -> Right $ 1024 * 1024 * 1024 * x
-      where has_scaling_suffixes = not (o `osHasAttr` OptAttrNoScalingSuffixes)
+      where has_scaling_suffixes = not (OptAttrNoScalingSuffixes`osHasAttr`o)
     ((x,""):(y,""):_) -> Left $ "ambiguous value to " ++ optNames o ++ "; could be " ++ ovFormat x ++ " or " ++ ovFormat y
     _                 -> Left $ "malformed argument to " ++ optNames o
 

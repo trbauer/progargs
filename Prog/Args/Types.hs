@@ -1,19 +1,5 @@
-{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE Rank2Types #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 module Prog.Args.Types where
-
-import Data.Typeable
-
--- TODO: specify triggers
--- Basically, we parse everything including triggers.
--- If any trigger is specified we call, then after parsing all arguments
--- we call (osDerived os) on each of the triggers and ***exit success***.
--- An example of a trigger is the --help option.
---
--- TODO: make the help option take a list of strings --help=foo,bar,baz --help foo,bar,baz
---
 
 -- A set of option specifications.
 -- The 'o' type variable corresponds to the data type containing the options
@@ -29,30 +15,40 @@ data Spec o = Spec {
 -- An option specification.  An arugment is also treated as an
 -- option specification, but with empty short and long names.
 -- The 'o' type variable corresponds to the data type containing the options
-data OptSpec o = OptSpec {
-    osShort    :: String -- the short option name (or "" if no short name),
-                         -- if both this and long are "", then it's an arg. (not an opt.)
-  , osLong     :: String -- the long option name (or "" if no long name)
-  , osTypeName :: String -- -foo=FILE -> "FILE".  For ARGs, this gets listed as the name
-  , osDesc     :: String -- the (short) description (be concise)
-  , osExtDesc  :: String -- an extended description for the --help option
-  , osAttrs    :: [OptAttr]
-  , osDerived  :: (Maybe (o -> IO o)) -- if an option does not get set explicitly,
-                                      -- this action is run at the end; if this is Nothing
-                                      -- and OptAttrAllowUnset is not an attribute, then
-                                      -- we throw a fit
-  , osSetFlag  :: Maybe (o -> IO o) -- for flags
-  , osSetUnary :: Maybe (String -> o -> IO o) -- for options taking an argument: --foo=v or --foo v
-  }
+data OptSpec o =
+    OptSpec {
+      osShort    :: String -- the short option name (or "" if no short name),
+                           -- if both this and long are "", then it's an arg. (not an opt.)
+    , osLong     :: String -- the long option name (or "" if no long name)
+    , osTypeName :: String -- -foo=FILE -> "FILE".  For ARGs, this gets listed as the name
+    , osDesc     :: String -- the (short) description (be concise)
+    , osExtDesc  :: String -- an extended description for the --help option
+    , osAttrs    :: [OptAttr]
+    , osDerived  :: Maybe (o -> IO o) -- if an option does not get set explicitly,
+                                        -- this action is run at the end; if this is Nothing
+                                        -- and OptAttrAllowUnset is not an attribute, then
+                                        -- we throw a fit
+    , osSetFlag  :: Maybe (o -> IO o) -- for flags
+    , osSetUnary :: Maybe (String -> o -> IO o) -- for options taking an argument: --foo=v or --foo v
+
+    -- only valid for Group (will be lifted outwards)
+    , osMembers :: [OptSpec o]
+    -- only options and arguments will have an owner, groups will not
+    , osOwner :: Maybe (OptSpec o)
+    }
+
+-- Is an optspec representing a group
+osIsGroup :: OptSpec o -> Bool
+osIsGroup os = case osOwner os of {Just _ -> False; _ -> True}
 -- Is an option instead of an argument
 osIsOpt :: OptSpec o -> Bool
-osIsOpt = not . osIsArg
+osIsOpt os = not (osIsGroup os) && not (osIsArg os)
 -- Is an argument instead of option
 osIsArg :: OptSpec o -> Bool
-osIsArg os = null (osShort os) && null (osLong os)
+osIsArg os = not (osIsGroup os) && null (osShort os) && null (osLong os)
 -- tests if an argument or option has an attribute
-osHasAttr :: OptSpec o -> OptAttr -> Bool
-osHasAttr os = (`elem`osAttrs os)
+osHasAttr :: OptAttr -> OptSpec o -> Bool
+osHasAttr a = (a`elem`) . osAttrs
 
 -- These attributes are affixed to various options and arguments.
 data OptAttr =
@@ -74,14 +70,17 @@ data OptAttr =
                              -- scales by 1024*1024; or 'g'/'G' which is *1024
                              -- more; if this options is set, we do not
                              -- recognize said suffixes
+--  | OptAttrHidden            -- hidden options are not shown in the help
+
+
+
 -- | OptExtGroup String      -- This allows one to define an option as part of an
 --                           -- option group.  For instance, we could use "-X" to
 --                           -- group all "extended" options as a group.
 --                           -- -X or -hX would print the help for that set.
 -- TODO: HAVE TO WORRY ABOUT AMBIGUITY ...
 --
--- | OptAttrHidden           -- hidden options are not shown in the help
---                           -- message
+                           -- message
 -- | OptExtended             -- Extended options are a special option group
 --                           -- that is not fully shown in the help screen;
 --                           -- all are prefixed with "-X" and just "-X" prints
@@ -127,3 +126,20 @@ data OptAttr =
 
 
 
+instance Show (OptSpec o) where
+  show (OptSpec snm lnm desc exdesc tynm attrs mderiv msetfl msetu ms osown) =
+    "OptSpec {\n" ++
+    "  osShort = " ++ show snm ++ ",\n" ++
+    "  osLong = " ++ show lnm ++ ",\n" ++
+    "  osTypeName = " ++ show tynm ++ ",\n" ++
+    "  osDesc = " ++ show desc ++ ",\n" ++
+    "  osExtDesc = " ++ show exdesc ++ ",\n" ++
+    "  osAttrs = " ++ show attrs ++ ",\n" ++
+    "  osDerived = " ++ showM mderiv ++ ",\n" ++
+    "  osSetFlag = " ++ showM msetfl ++ ",\n" ++
+    "  osSetUnary = " ++ showM msetu ++ "\n" ++
+    "  osMembers =  ...\n" ++
+    "  osOwner = ...\n" ++
+    "}"
+    where showM (Just _) = "Just (...function...)"
+          showM _ = "Nothing"
