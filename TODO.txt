@@ -1,6 +1,11 @@
+* on windows get could expand $FOO as environment variable foo in argument strings
+
+
 * get terminal width via native code
   - MSDN console API
   - terminal info for unix
+
+
 * Preparse make an options to call handlers in specfication-order.
   I.e. given
      [  flag .. "a" ..

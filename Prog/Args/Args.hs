@@ -4,7 +4,7 @@ module Prog.Args.Args(
   , mkSpec, mkSpecsWithHelpOpt
 
   -- option, flag, and argument smart constructors
-  , opt, optPIO, opte, opte', flag
+  , opt, optPIO, optES, optE, flag
   , arg, argPIO
   , triggerIO
   , optGroup
@@ -89,7 +89,7 @@ mkSpecsWithHelpOpt exe desc max_cols oss0 ass = spec
             noDefault
             (Just (\_ -> printUsage spec >> exitSuccess))
             (Just (\s _ -> helpArg s))
-            []
+            Nothing
             Nothing
 
         -- check if it's a group
@@ -126,7 +126,7 @@ opt ::
 opt _    snm lnm _  _    _        _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "opt" snm lnm
 opt spec snm lnm ty desc ext_desc setter = os
-  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (optValSetter spec os setter) [] Nothing
+  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (optValSetter spec os setter) Nothing Nothing
 
 dashesInOpt :: String -> String -> String -> a
 dashesInOpt func snm lnm =
@@ -149,9 +149,9 @@ optPIO ::
 optPIO _    snm lnm _  _    _        _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optPIO" snm lnm
 optPIO spec snm lnm ty desc ext_desc setter = os
-  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (Just safeSetter) [] Nothing
+  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (Just safeSetter) Nothing Nothing
         safeSetter s o = do
-          let handler e = specBadArg spec (Just os) ("INTERNAL ARG SPEC ERROR: Util.Args.Args.optIO: this options parser threw: " ++ show (e :: SomeException))
+          let handler e = specBadArg spec (Just os) ("INTERNAL ARG SPEC ERROR: Util.Args.Args.optPIO: this options parser threw: " ++ show (e :: SomeException))
           setter spec s o `catch` handler
 
 
@@ -178,12 +178,32 @@ optPIO spec snm lnm ty desc ext_desc setter = os
 --          setter spec s o `catch` handler
 
 
--- Same as 'opte', but takes an explicit enumeration symbol for each enum value.
+-- Constructs an enumeration argument.
+-- Uses the 'show a' for the symbol to match.
+-- See the other 'opte' for more info.
+optES ::
+     Show a
+  => Spec o -- the spec this will belong to
+  -> String -- short name
+  -> String -- long name
+  -> String -- type
+  -> String -- short description
+  -> String -- extended description
+  -> (a -> o -> o) -- setter
+  -> [(a,String)] -- (enum value, enum desc.) matches against (show a)
+  -> OptSpec o
+optES _    snm lnm _  _    _        _      _
+  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optES" snm lnm
+optES spec snm lnm ty desc ext_desc setter enums =
+  optE spec snm lnm ty desc ext_desc setter (map (\(a,d) -> (a,show a,d)) enums)
+
+
+-- Same as 'optE', but takes an explicit enumeration symbol for each enum value.
 -- The long description will be appended with each enum's description given,
 -- unless all those strings are empty.
 -- E.g.
 -- @
--- opte' ... [(RED,"RED","colors things red")
+-- optE ... [(RED,"RED","colors things red")
 --           ,(RED,"red","") -- alias for RED, not listed though
 --           ,(GRN,"GRN","colors things green")]
 -- @
@@ -191,11 +211,11 @@ optPIO spec snm lnm ty desc ext_desc setter = os
 --
 -- The following will not extend the long description.
 -- @
--- opte' ... [(RED,"RED","") -- all descs empty
+-- optE ... [(RED,"RED","") -- all descs empty
 --           ,(GRN,"GRN","")]
 -- @
 --
-opte' ::
+optE ::
      Spec o -- the spec this will belong to
   -> String -- short name
   -> String -- long name
@@ -205,10 +225,10 @@ opte' ::
   -> (a -> o -> o) -- setter
   -> [(a,String,String)] -- (enum symbol, enum value, enum desc.)
   -> OptSpec o
-opte' _    snm lnm _  _    _        _      _
+optE _    snm lnm _  _    _        _      _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "opte'" snm lnm
-opte' spec snm lnm ty desc ext_desc setter enums = os
-  where os = OptSpec snm lnm ty desc ext_desc2 [] noDefault Nothing (Just parser) [] Nothing
+optE spec snm lnm ty desc ext_desc setter enums = os
+  where os = OptSpec snm lnm ty desc ext_desc2 [] noDefault Nothing (Just parser) Nothing Nothing
         parser s o =
           case find ((== s) . snd3) enums of
             Just (a,_,_) -> return $ setter a o
@@ -225,27 +245,6 @@ opte' spec snm lnm ty desc ext_desc setter enums = os
                               concatMap fmtEnumDesc ext_listings
                 fmtEnumDesc (_,s,d) = "      " ++ padR dlen s ++ "  - " ++ d ++ "\n"
                 dlen = maximum (4 : map (length . snd3) enums)
-
-
--- Constructs an enumeration argument.
--- Uses the 'show a' for the symbol to match.
--- See the other 'opte' for more info.
-opte ::
-     Show a
-  => Spec o -- the spec this will belong to
-  -> String -- short name
-  -> String -- long name
-  -> String -- type
-  -> String -- short description
-  -> String -- extended description
-  -> (a -> o -> o) -- setter
-  -> [(a,String)] -- (enum value, enum desc.) matches against (show a)
-  -> OptSpec o
-opte _    snm lnm _  _    _        _      _
-  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "opte" snm lnm
-opte spec snm lnm ty desc ext_desc setter enums =
-  opte' spec snm lnm ty desc ext_desc setter (map (\(a,d) -> (a,show a,d)) enums)
-
 
 -- Creates a flag option.  Flags have the 'OptAttrAllowUnset' attribute
 -- set by default since they're inherently optional.
@@ -265,7 +264,7 @@ dftOptSpec ::
   -> String -- extended description
   -> OptSpec o
 dftOptSpec snm lnm desc typ ext_desc =
-  OptSpec snm lnm desc typ ext_desc [] Nothing Nothing Nothing [] Nothing
+  OptSpec snm lnm desc typ ext_desc [] Nothing Nothing Nothing Nothing Nothing
 
 -- Creates an argument.
 --
@@ -321,7 +320,7 @@ triggerIO ::
 triggerIO _    snm lnm _    _        _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "triggerIO" snm lnm
 triggerIO spec snm lnm desc ext_desc handler =
-    OptSpec snm lnm "" desc ext_desc [OptAttrAllowUnset] noDefault (Just handler) Nothing [] Nothing
+    OptSpec snm lnm "" desc ext_desc [OptAttrAllowUnset] noDefault (Just handler) Nothing Nothing Nothing
 
 
 noDefault :: Maybe (o -> IO o)
@@ -351,12 +350,7 @@ optGroup spec sym desc ext_desc ms
         error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
               "group(" ++ show sym ++"): " ++
               "nested groups may not contain args:\n" ++ show os)
-  -- cheat here, since all members will not have an "owner" yet,
-  -- they will all look like groups (osIsGroup will be True)
-  -- we cheat by using the existence of members to show something is a group
-  -- this means we could have an empty group within a group, but that's a
-  -- minor thing to leave undetected
-  | any isGroup_HACK ms =
+  | any osIsGroup ms =
     case filter isGroup_HACK ms of
       (os:_) ->
         error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
@@ -365,7 +359,7 @@ optGroup spec sym desc ext_desc ms
   | otherwise = grp # OptAttrAllowUnset
   where grp = (dftOptSpec sym "" "" desc ext_desc) {
                 -- ensure no group contains a group
-                osMembers = map f ms
+                osMaybeMembers = Just $ map f ms
               }
         -- f :: OptSpec o -> OptSpec o
         f os =

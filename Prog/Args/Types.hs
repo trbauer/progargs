@@ -32,14 +32,16 @@ data OptSpec o =
     , osSetUnary :: Maybe (String -> o -> IO o) -- for options taking an argument: --foo=v or --foo v
 
     -- only valid for Group (will be lifted outwards)
-    , osMembers :: [OptSpec o]
+    , osMaybeMembers :: Maybe [OptSpec o]
     -- only options and arguments will have an owner, groups will not
     , osOwner :: Maybe (OptSpec o)
     }
+osMembers :: OptSpec o -> [OptSpec o]
+osMembers os = case osMaybeMembers os of {Nothing -> []; Just ms -> ms}
 
 -- Is an optspec representing a group
 osIsGroup :: OptSpec o -> Bool
-osIsGroup os = case osOwner os of {Just _ -> False; _ -> True}
+osIsGroup os = case osMaybeMembers os of { Nothing -> False; _ -> True }
 -- Is an option instead of an argument
 osIsOpt :: OptSpec o -> Bool
 osIsOpt os = not (osIsGroup os) && not (osIsArg os)
@@ -138,7 +140,7 @@ instance Show (OptSpec o) where
     "  osDerived = " ++ showM mderiv ++ ",\n" ++
     "  osSetFlag = " ++ showM msetfl ++ ",\n" ++
     "  osSetUnary = " ++ showM msetu ++ "\n" ++
-    "  osMembers =  ...\n" ++
+    "  osMMembers = ...\n" ++
     "  osOwner = ...\n" ++
     "}"
     where showM (Just _) = "Just (...function...)"
