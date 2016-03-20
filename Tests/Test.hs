@@ -24,8 +24,8 @@ dfltOpts :: Opts
 dfltOpts = Opts 0 8 0 "" "" [] 0
 
 goodSpec1 :: Spec Opts
-goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
-                  flag goodSpec1 "v" "verbose"
+goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [
+                  optF goodSpec1 "v" "verbose"
                     "the verbosity level" ""
                     (\o -> (o {oVerbosity = 1}))
 
@@ -42,24 +42,24 @@ goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
 
                 , opt goodSpec1 "c" "coeff" "DBL"
                     "A special filter value" "Coefficient"
-                    (\c o -> (o {oCoeff = c})) #+ [OptAttrAllowUnset, OptAttrAllowFusedSyntax]
+                    (\c o -> (o {oCoeff = c})) #++ [OptAttrAllowUnset, OptAttrAllowFusedSyntax]
 
                 , opt goodSpec1 "l" "log-file" "PATH"
                     "an optional logfile" "Yes, it's optional"
                     (\f o -> (o {oLogFile = f})) # OptAttrAllowUnset
 
-                , triggerIO goodSpec1 "t" "trigger"
+                , optFIO goodSpec1 "t" "trigger"
                     "triggers something" ""
                     (\o -> return o{oTriggers = oTriggers o + 1}) # OptAttrAllowMultiple
 
-                , optGroup goodSpec1 "X"
+                , optG goodSpec1 "X"
                     "experimental options" "" [
                       -- -Xd
-                      flag goodSpec1 "d" ""
+                      optF goodSpec1 "d" ""
                         "the verbosity level" ""
                         (\o -> (o {oVerbosity = 2}))
                       -- --Xquiet
-                    , flag goodSpec1 "" "quiet"
+                    , optF goodSpec1 "" "quiet"
                         "the verbosity level" ""
                         (\o -> (o {oVerbosity = -1}))
                       -- -Xv=... and -Xverbosity=...
@@ -76,7 +76,7 @@ goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [
                 ]
 goodSpec2 :: Spec Opts
 goodSpec2 =
-  mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [][
+  mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [][
                   arg goodSpec2 "ARG1" "the arg" "long arg desc"
                     (\a o -> o{oArgs = oArgs o ++ [a]})
                 , arg goodSpec2 "ARG2" "the second arg" "the second arg"
@@ -84,7 +84,7 @@ goodSpec2 =
                 ]
 goodSpec3 :: Spec Opts
 goodSpec3 =
-  mkSpecsWithHelpOpt "testargs" "tests Args package" 80 [][
+  mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [][
                   arg goodSpec3 "ARG1" "the arg" "long arg desc"
                     (\a o -> o{oArgs = oArgs o ++ [a]})
                 , arg goodSpec3 "ARG2" "the second arg" "the second arg"
@@ -94,18 +94,18 @@ goodSpec3 =
 
 badSpec1 :: Spec Opts
 badSpec1 =
-  mkSpecsWithHelpOpt "badSpec1" "tests Args package: badSpec1" 80 [
-      flag badSpec1 "X" "oops"
+  mkSpecsWithHelpOpt "badSpec1" "tests Args package: badSpec1" 0 [
+      optF badSpec1 "X" "oops"
         "conflicts" ""
         (\o -> (o {oVerbosity = 1})) # OptAttrAllowUnset
-        , optGroup badSpec1 "X"
+        , optG badSpec1 "X"
             "experimental options" "" [
               -- -Xd
-              flag badSpec1 "d" ""
+              optF badSpec1 "d" ""
                 "the verbosity level" ""
                 (\o -> (o {oVerbosity = 2})) # OptAttrAllowUnset
               -- --Xquiet
-            , flag badSpec1 "" "quiet"
+            , optF badSpec1 "" "quiet"
                 "the verbosity level" ""
                 (\o -> (o {oVerbosity = -1})) # OptAttrAllowUnset
               -- -Xop
@@ -119,13 +119,13 @@ badSpec1 =
 
 badSpec2 :: Spec Opts
 badSpec2 =
-  mkSpecsWithHelpOpt "testargs2" "tests Args package: badSpec2" 80 [
-      flag badSpec2 "Xfoo" "oops"
+  mkSpecsWithHelpOpt "testargs2" "tests Args package: badSpec2" 0 [
+      optF badSpec2 "Xfoo" "oops"
         "conflicts" ""
         (\o -> (o {oVerbosity = 1}))
-        , optGroup badSpec2 "X"
+        , optG badSpec2 "X"
             "experimental options" "" [
-              flag badSpec2 "foo" ""
+              optF badSpec2 "foo" ""
                 "the verbosity level" ""
                 (\o -> (o {oVerbosity = 2}))
             ]

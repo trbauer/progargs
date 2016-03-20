@@ -49,18 +49,29 @@ cabal-version:       >=1.10
 
 library
   -- Modules exported by the library.
-  exposed-modules:     Prog.Args, Prog.Args.Types, Prog.Args.OptVal, Prog.Args.Impl, Prog.Args.Args
+  exposed-modules:
+        Prog.Args
+      , Prog.Args.Args
+      , Prog.Args.Impl
+      , Prog.Args.OptVal
+      , Prog.Args.Types
 
   -- Modules included in this library but not exported.
   -- other-modules:
 
   -- LANGUAGE extensions used by modules in this package.
-  other-extensions:    ExistentialQuantification, Rank2Types, TypeSynonymInstances, FlexibleInstances
+  other-extensions:
+        ExistentialQuantification
+      , Rank2Types
+      , TypeSynonymInstances
+      , FlexibleInstances
 
   -- Other library packages from which modules are imported.
   build-depends:
     base >=4.8 && <4.9,
     ansi-terminal >=0.6 && <0.7
+
+  c-sources:           cbits/cbits.c
 
   -- Directories containing source files.
   -- hs-source-dirs:
@@ -70,9 +81,10 @@ library
 
 
 Test-Suite  test-progargs
-    type:            exitcode-stdio-1.0
-    main-is:         Tests/Test.hs
-    build-depends:
-        base >=4.8 && <4.9
-      , ansi-terminal >=0.6 && <0.7
+  type:            exitcode-stdio-1.0
+  main-is:         Tests/Test.hs
+  c-sources:       cbits/cbits.c
+  build-depends:
+      base >=4.8 && <4.9
+    , ansi-terminal >=0.6 && <0.7
 

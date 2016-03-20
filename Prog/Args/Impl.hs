@@ -17,6 +17,7 @@ module Prog.Args.Impl(
 
   -- utility functions
   , padR
+
   ) where
 
 import Prog.Args.Types
@@ -56,7 +57,7 @@ fmtSpec spec = result
 
         spec_title_str
           | null s = ""
-          | otherwise =  wrapText "" (specMaxCols spec) s ++ "\n"
+          | otherwise = wrapText "" (specMaxCols spec) s ++ "\n"
           where s = specTitle spec
 
         (opts,args) = (specOpts spec, specArgs spec)
@@ -264,9 +265,10 @@ padR w s = s ++ replicate (w - length s) ' '
 --
 -- After processing all tokens we
 parseArgs :: Spec o -> o -> [String] -> IO o
-parseArgs spec opts as =
+parseArgs spec opts as = do
+    let os_all = ossFlatten (specOpts spec)
     checkSpec spec os_all >> parseArgs0 spec os_all as (PSt [] 0 []) opts
-  where os_all = ossFlatten (specOpts spec)
+
 
 -- options indices and number of arugments set
 data PSt o = PSt {

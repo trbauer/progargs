@@ -4,18 +4,27 @@ module Prog.Args.Args(
   , mkSpec, mkSpecsWithHelpOpt
 
   -- option, flag, and argument smart constructors
-  , opt, optPIO, optES, optE, flag
-  , arg, argPIO
-  , triggerIO
-  , optGroup
+  , opt -- basic opts (optV for OptVal type class?)
+  , optF, optFIO -- flag option (takes no argument)
+  , optVF, optVFIO -- can be flag form or arg form
+  , optPIO -- delegates parsing to to the user (should be OptVal too (let user choose String))
+  , optES, optE -- enum opts (user provides a table mapping strings to values)
+  , optG -- opt group
+
+  , arg, argPIO -- arguments
+
+  -- legacy names
+  , flag
 
   -- modifiers
-  , (#), (#+)
+  , (#), (#++) -- sets attributes
   , withAttribute, withAttributes, replaceAttributes
   , (#=), (#<-)
   , withDefault
   , withDerived
-  , withNullaryHandler
+-- , (#!)
+--  , withConstraint
+--  , withNullaryHandler
 
     -- parsing (re-exported from Impl)
   , parseArgs
@@ -27,8 +36,9 @@ module Prog.Args.Args(
 --  , customSetter, customFlagSetter, typeableReadSetter
   ) where
 
-import Prog.Args.OptVal
 import Prog.Args.Impl
+import Prog.Args.Native
+import Prog.Args.OptVal
 import Prog.Args.Types
 
 import Control.Exception
@@ -36,6 +46,7 @@ import Data.List
 import Debug.Trace
 import System.Exit
 import System.IO
+import System.IO.Unsafe
 
 
 -- Makes a specification given a list of options and arguments
@@ -53,7 +64,7 @@ import System.IO
 -- @
 mkSpec :: String -> String -> Int -> [OptSpec o] -> [OptSpec o] -> Spec o
 mkSpec exe desc max_cols oss ass = spec
-  where spec = Spec exe desc (max 80 max_cols) (defaultBadArgHandler spec exe) oss ass
+  where spec = Spec exe desc cw (defaultBadArgHandler spec exe) oss ass
         -- I have to repass the arguments here to force unification
         -- defaultBadArgHandler :: Spec o -> String -> Maybe (OptSpec o) -> String -> IO a
         defaultBadArgHandler spec exe mos msg = do
@@ -65,6 +76,15 @@ mkSpec exe desc max_cols oss ass = spec
               | otherwise  -> hPutStr stderr $ fmtArgSpecExtDesc spec os
           exitFailure
 
+        cw :: Int
+        cw
+          | max_cols /= 0 = max_cols
+          | otherwise =
+            unsafePerformIO $ do
+              x <- getConsoleWidth
+              return $! if x == 0 then 80 else x
+
+
 
 -- Same as 'mkSpec', but adds a -h --help trigger to list help and exit.
 mkSpecsWithHelpOpt :: String -> String -> Int -> [OptSpec o] -> [OptSpec o] -> Spec o
@@ -74,45 +94,46 @@ mkSpecsWithHelpOpt exe desc max_cols oss0 ass = spec
         oss1 = helpOpt : oss0
 
         helpOpt =
-          OptSpec "h" "help" "OPTION"
-            "lists info on an option"
-            ("pass the long or short option name to this option for more info;\n" ++
-             "for info on an argument pass the index of the argument;\n" ++
-             "by convention the first argument is 1\n" ++
-             "EXAMPLES:\n" ++
-             exe ++ " -h         -- lists help overview\n" ++
-             exe ++ " -h=foo     -- lists help on option 'foo'\n" ++
-             exe ++ " -h=-foo    -- ... same as above\n" ++
-             exe ++ " -h=1       -- lists info on the first argument the program takes\n" ++
-             "")
-            [OptAttrAllowUnset]
-            noDefault
-            (Just (\_ -> printUsage spec >> exitSuccess))
-            (Just (\s _ -> helpArg s))
-            Nothing
-            Nothing
+          optVFIO spec "h" "help" "OPTION"
+            "lists info on an option" help_ext_desc
+            (\_ -> printUsage spec >> exitSuccess)
+            (\s o -> helpArg o s >> exitSuccess)
+
+          where help_ext_desc =
+                 "pass the long or short option name to this option for more info;\n" ++
+                 "for info on an argument pass the index of the argument;\n" ++
+                 "by convention the first argument is 1\n" ++
+                 "EXAMPLES:\n" ++
+                 exe ++ " -h         -- lists help overview\n" ++
+                 exe ++ " -h=foo     -- lists help on option 'foo'\n" ++
+                 exe ++ " -h=-foo    -- ... same as above\n" ++
+                 exe ++ " -h=1       -- lists info on the first argument the program takes\n" ++
+                 ""
 
         -- check if it's a group
-        helpArg :: String -> IO o
-        helpArg nm =
+        helpArg :: o -> String -> IO o
+        helpArg o nm = do
           case find (\os -> osShort os == nm || osLong os == nm ||
                       ("-" ++ osShort os) == nm || ("--" ++ osLong os) == nm) flattened_oss1 of
             Just os ->
-              putStr (fmtOptSpecExtDesc spec os) >> exitSuccess
+              putStr (fmtOptSpecExtDesc spec os) >> return o
             Nothing ->
               case reads nm :: [(Int,String)] of
                 [(x,"")]
                   | x > length ass -> specBadArg spec Nothing $ "-h argument index " ++ nm ++ " is too large"
-                  | x == 0         -> printUsage spec >> exitSuccess
-                  | otherwise      -> putStr (fmtArgSpecExtDesc spec (ass !! (x - 1))) >> exitSuccess
+                  | x == 0         -> printUsage spec >> return o
+                  | otherwise      -> putStr (fmtArgSpecExtDesc spec (ass !! (x - 1))) >> return o
                 _ -> specBadArg spec (Just helpOpt) $ "-h cannot find long or short option " ++ nm ++ ", and bad argument index"
 
         -- flattened :: [OptSpec o]
         flattened_oss1 = ossFlatten oss1
 
+
 -- Creates an option given long and short names, description (terse and extended),
--- the type name and setter.  Uses the 'Read' instance to assign the argument
--- type except for 'String', which uses 'id' (just copies the string).
+-- the type name and setter.  Uses the 'OptVal' instance to assign the option
+-- value.
+--
+-- If you want to manually parse a @String@ to something look into @optPIO@.
 opt ::
      (OptVal a)
   => Spec o -- the spec this will belong to
@@ -126,15 +147,7 @@ opt ::
 opt _    snm lnm _  _    _        _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "opt" snm lnm
 opt spec snm lnm ty desc ext_desc setter = os
-  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (optValSetter spec os setter) Nothing Nothing
-
-dashesInOpt :: String -> String -> String -> a
-dashesInOpt func snm lnm =
-  error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
-          func ++ "(" ++ show snm ++ " / " ++ show lnm ++
-          "): options name starts with '-'")
-
-
+  where os = (dftOptSpec snm lnm ty desc ext_desc){osSetUnary = optValSetter spec os setter}
 -- Leaves the parsing to the user.
 -- User can call 'specBadArg' to indicate failure.
 optPIO ::
@@ -149,7 +162,8 @@ optPIO ::
 optPIO _    snm lnm _  _    _        _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optPIO" snm lnm
 optPIO spec snm lnm ty desc ext_desc setter = os
-  where os = OptSpec snm lnm ty desc ext_desc [] noDefault Nothing (Just safeSetter) Nothing Nothing
+  where os = (dftOptSpec snm lnm ty desc ext_desc)
+              {osSetUnary = Just safeSetter}
         safeSetter s o = do
           let handler e = specBadArg spec (Just os) ("INTERNAL ARG SPEC ERROR: Util.Args.Args.optPIO: this options parser threw: " ++ show (e :: SomeException))
           setter spec s o `catch` handler
@@ -196,8 +210,6 @@ optES _    snm lnm _  _    _        _      _
   | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optES" snm lnm
 optES spec snm lnm ty desc ext_desc setter enums =
   optE spec snm lnm ty desc ext_desc setter (map (\(a,d) -> (a,show a,d)) enums)
-
-
 -- Same as 'optE', but takes an explicit enumeration symbol for each enum value.
 -- The long description will be appended with each enum's description given,
 -- unless all those strings are empty.
@@ -226,9 +238,10 @@ optE ::
   -> [(a,String,String)] -- (enum symbol, enum value, enum desc.)
   -> OptSpec o
 optE _    snm lnm _  _    _        _      _
-  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "opte'" snm lnm
+  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optE" snm lnm
 optE spec snm lnm ty desc ext_desc setter enums = os
-  where os = OptSpec snm lnm ty desc ext_desc2 [] noDefault Nothing (Just parser) Nothing Nothing
+  where os = (dftOptSpec snm lnm ty desc ext_desc2)
+              {osSetUnary = Just parser}
         parser s o =
           case find ((== s) . snd3) enums of
             Just (a,_,_) -> return $ setter a o
@@ -246,25 +259,136 @@ optE spec snm lnm ty desc ext_desc setter enums = os
                 fmtEnumDesc (_,s,d) = "      " ++ padR dlen s ++ "  - " ++ d ++ "\n"
                 dlen = maximum (4 : map (length . snd3) enums)
 
--- Creates a flag option.  Flags have the 'OptAttrAllowUnset' attribute
--- set by default since they're inherently optional.
-flag :: Spec o -> String -> String -> String -> String -> (o -> o) -> OptSpec o
-flag _    snm lnm _    _        _
-  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "flag" snm lnm
-flag spec snm lnm desc ext_desc set_flag =
-    (dftOptSpec snm lnm "" desc ext_desc) {osSetFlag = customFlagSetter set_flag} `withAttribute` OptAttrAllowUnset
-  where customFlagSetter :: (o -> o) -> Maybe (o -> IO o)
-        customFlagSetter f = Just $ \o -> return (f o)
+-- Synonym for @optF@.
+flag ::
+     Spec o -- the spec this belongs to
+  -> String -- short name
+  -> String -- long name
+  -> String -- short description
+  -> String -- extended description
+  -> (o -> o) -- the action to run
+  -> OptSpec o
+flag = optF
+-- A flag option.  The handler takes no value argument.
+--
+-- Triggers are typically used for help and version options.
+optF ::
+     Spec o -- the spec this belongs to
+  -> String -- short name
+  -> String -- long name
+  -> String -- short description
+  -> String -- extended description
+  -> (o -> o) -- the action to run
+  -> OptSpec o
+optF _    snm lnm _    _        _
+  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optF" snm lnm
+optF spec snm lnm desc ext_desc handler =
+  optFIO spec snm lnm desc ext_desc (sinkIO handler)
+-- A flag with an IO action as the handler.  This allows things like triggers
+-- which might terminate option parsing.  E.g. the handler can @exitSuccess@.
+--
+-- Triggers are typically used for help and version options.
+optFIO ::
+     Spec o -- the spec this belongs to
+  -> String -- short name
+  -> String -- long name
+  -> String -- short description
+  -> String -- extended description
+  -> (o -> IO o) -- the action to run
+  -> OptSpec o
+optFIO _    snm lnm _    _        _
+  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optFIO" snm lnm
+optFIO spec snm lnm desc ext_desc handler =
+  (dftOptSpec snm lnm "" desc ext_desc){osSetFlag = Just handler} # OptAttrAllowUnset
 
-dftOptSpec ::
-     String -- short name
+
+-- A pure form of the  option-flag is an option that can be in option or flag form.
+-- E.g. -Xfoo and -Xfoo=value are both accepted.  The user passes different
+-- handlers for each.
+optVF ::
+     (OptVal a)
+  => Spec o
+  -> String -- short name
+  -> String -- long name
+  -> String -- type
+  -> String -- short desc
+  -> String -- long desc
+  -> (o -> o) -- sets with no arg
+  -> (a -> o -> o) -- sets with an arg
+  -> OptSpec o
+optVF spec snm lnm ty desc ext_desc set_flag set_unary =
+    optVFIO spec snm lnm ty desc ext_desc (sinkIO set_flag) (sinkIO2 set_unary)
+-- An option-flag is an option that can be in option or flag form.
+-- E.g. -Xfoo and -Xfoo=value are both accepted.  The user passes different
+-- handlers for each.
+optVFIO ::
+     (OptVal a)
+  => Spec o
+  -> String -- short name
   -> String -- long name
   -> String -- type
   -> String -- short description
-  -> String -- extended description
+  -> String -- long description
+  -> (o -> IO o) -- sets with no argument (e.g. -h)
+  -> (a -> o -> IO o) -- sets with an argument (e.g. -h=a)
   -> OptSpec o
-dftOptSpec snm lnm desc typ ext_desc =
-  OptSpec snm lnm desc typ ext_desc [] Nothing Nothing Nothing Nothing Nothing
+optVFIO _    snm lnm _  _    _        _        _
+  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "optVFIO" snm lnm
+optVFIO spec snm lnm ty desc ext_desc set_flag set_unary = os
+  where os = (dftOptSpec snm lnm ty desc ext_desc) {
+                  osSetFlag = Just set_flag
+                , osSetUnary = optValSetterIO spec os set_unary
+                } # OptAttrAllowUnset
+
+
+-- An option group
+--
+--   => Cannot contains nested groups
+--   => Cannot contain arg's
+optG ::
+     Spec o -- spec
+  -> String -- symbol
+  -> String -- short desc (group name), e.g. "experimental options"
+  -> String -- long desc
+  -> [OptSpec o] -- members
+  -> OptSpec o
+optG spec sym desc ext_desc ms
+  | null sym =
+    error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
+            "group(" ++ show sym ++ "): " ++
+            "requires a short or long name")
+  | head sym == '-' = dashesInOpt "group" sym ""
+  | any osIsArg ms =
+    case filter osIsArg ms of
+      (os:_) ->
+        error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
+              "group(" ++ show sym ++"): " ++
+              "nested groups may not contain args:\n" ++ show os)
+  | any osIsGroup ms =
+    case filter isGroup_HACK ms of
+      (os:_) ->
+        error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
+              "group(" ++ show sym ++"): " ++
+              "nested groups not supported; contains group:\n" ++ show os)
+  | otherwise = grp # OptAttrAllowUnset
+  where grp = (dftOptSpec sym "" "" desc ext_desc) {
+                -- ensure no group contains a group
+                osMaybeMembers = Just $ map f ms
+              }
+        -- f :: OptSpec o -> OptSpec o
+        f os =
+          os {
+            osOwner = Just grp
+          , osShort = checkNull sym (osShort os)
+          , osLong = checkNull sym (osLong os)
+          }
+
+        checkNull pfx sfx
+          | null sfx = ""
+          | otherwise = pfx ++ sfx
+
+        isGroup_HACK os = not (null (osMembers os))
+
 
 -- Creates an argument.
 --
@@ -302,85 +426,34 @@ argPIO spec ty desc ext_desc setter = os
           setter spec s o `catch` handler
 
 
--- A trigger is just like a flag (with AllowUnset), but takes a simple IO action
--- to run instead of a mutator for the options.  It can observe the options,
--- but does not modify them.
--- They typically exit the program with 'exitSuccess', but don't
--- necessarily have to do so.
---
--- Triggers are typically used for help and version options.
-triggerIO ::
-     Spec o -- the spec this belongs to
-  -> String -- short name
+dftOptSpec ::
+     String -- short name
   -> String -- long name
+  -> String -- type
   -> String -- short description
   -> String -- extended description
-  -> (o -> IO o) -- the action to run
   -> OptSpec o
-triggerIO _    snm lnm _    _        _
-  | any ((=="-") . take 1) [snm,lnm] = dashesInOpt "triggerIO" snm lnm
-triggerIO spec snm lnm desc ext_desc handler =
-    OptSpec snm lnm "" desc ext_desc [OptAttrAllowUnset] noDefault (Just handler) Nothing Nothing Nothing
+dftOptSpec snm lnm desc typ ext_desc =
+  OptSpec snm lnm desc typ ext_desc [] Nothing Nothing Nothing Nothing Nothing
 
+sinkIO :: (a -> b) -> a -> IO b
+sinkIO f a = return $ f a
+sinkIO2 :: (a -> b -> c) -> a -> b -> IO c
+sinkIO2 f a b = return $ f a b
 
-noDefault :: Maybe (o -> IO o)
-noDefault = Nothing
+dashesInOpt :: String -> String -> String -> a
+dashesInOpt func snm lnm =
+  error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
+          func ++ "(" ++ show snm ++ " / " ++ show lnm ++
+          "): options name starts with '-'")
 
-
--- An option group
---
---   => Cannot contains nested groups
---   => Cannot contain arg's
-optGroup ::
-     Spec o -- spec
-  -> String -- symbol
-  -> String -- short desc, e.g. "experimental options"
-  -> String -- long desc
-  -> [OptSpec o] -- members
-  -> OptSpec o
-optGroup spec sym desc ext_desc ms
-  | null sym =
-    error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
-            "group(" ++ show sym ++ "): " ++
-            "requires a short or long name")
-  | head sym == '-' = dashesInOpt "group" sym ""
-  | any osIsArg ms =
-    case filter osIsArg ms of
-      (os:_) ->
-        error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
-              "group(" ++ show sym ++"): " ++
-              "nested groups may not contain args:\n" ++ show os)
-  | any osIsGroup ms =
-    case filter isGroup_HACK ms of
-      (os:_) ->
-        error ("INTERNAL ARG SPEC ERROR: Util.Args.Args." ++
-              "group(" ++ show sym ++"): " ++
-              "nested groups not supported; contains group:\n" ++ show os)
-  | otherwise = grp # OptAttrAllowUnset
-  where grp = (dftOptSpec sym "" "" desc ext_desc) {
-                -- ensure no group contains a group
-                osMaybeMembers = Just $ map f ms
-              }
-        -- f :: OptSpec o -> OptSpec o
-        f os =
-          os {
-            osOwner = Just grp
-          , osShort = checkNull sym (osShort os)
-          , osLong = checkNull sym (osLong os)
-          }
-
-        checkNull pfx sfx
-          | null sfx = ""
-          | otherwise = pfx ++ sfx
-
-        isGroup_HACK os = not (null (osMembers os))
 
 -- adds a default value to an option
 infixl 1 #=
 -- sets the default value used if the option is not parsed
 (#=) :: OptSpec o -> (o -> o) -> OptSpec o
 (#=) = withDefault
--- nominative form of '$='
+-- nominative form of '#='
 withDefault :: OptSpec o -> (o -> o) -> OptSpec o
 withDefault os f = os {osDerived = Just (\o -> return (f o))}
 
@@ -400,8 +473,8 @@ withDerived os s =
 
 
 -- sets a nullary setter (e.g. this makes "-h=foo" and "-h" both valid)
-withNullaryHandler :: OptSpec o -> (o -> o) -> OptSpec o
-withNullaryHandler os f = os {osSetFlag = Just (\o -> return (f o))}
+-- withNullaryHandler :: OptSpec o -> (o -> o) -> OptSpec o
+-- withNullaryHandler os f = os {osSetFlag = Just (\o -> return (f o))}
 -- symmetric opposite to 'withNullary'
 -- withUnaryHandler :: OptVal a => OptSpec o -> (a -> o -> o) -> OptSpec o
 -- withUnaryHandler os f = os {osSetUnary = optValSetter spec os f}
@@ -411,15 +484,15 @@ infixl 1 #
 -- appends to the attributes of an OptSpec
 (#) :: OptSpec o -> OptAttr -> OptSpec o
 (#) = withAttribute
--- nominative form of '#+'
+-- nominative form of '#'
 withAttribute :: OptSpec o -> OptAttr -> OptSpec o
 withAttribute os as = os { osAttrs = osAttrs os ++ [as] }
 
-infixl 1 #+
+infixl 1 #++
 -- appends to the attributes of an OptSpec
-(#+) :: OptSpec o -> [OptAttr] -> OptSpec o
-(#+) = withAttributes
--- nominative form of '#+'
+(#++) :: OptSpec o -> [OptAttr] -> OptSpec o
+(#++) = withAttributes
+-- nominative form of '#++'
 withAttributes :: OptSpec o -> [OptAttr] -> OptSpec o
 withAttributes os as = os { osAttrs = osAttrs os ++ as }
 
@@ -430,12 +503,20 @@ replaceAttributes os as = os { osAttrs = as }
 
 
 
-optValSetter :: OptVal a => Spec o -> OptSpec o -> (a -> o -> o) -> Maybe (String -> o -> IO o)
+optValSetter ::
+     OptVal a
+  => Spec o
+  -> OptSpec o
+  -> (a -> o -> o)
+  -> Maybe (String -> o -> IO o)
 optValSetter spec os f = optValSetterIO spec os fIO
   where fIO a o = return $ f a o
-
-
-optValSetterIO :: OptVal a => Spec o -> OptSpec o -> (a -> o -> IO o) -> Maybe (String -> o -> IO o)
+optValSetterIO ::
+     OptVal a
+  => Spec o
+  -> OptSpec o
+  -> (a -> o -> IO o)
+  -> Maybe (String -> o -> IO o)
 optValSetterIO spec os f = Just $ \s o ->
     case ovParse os s of
       Left "" -> badArg $ "malformed value " ++ s ++ " to " ++ osFriendlyName os

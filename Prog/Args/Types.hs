@@ -140,7 +140,7 @@ instance Show (OptSpec o) where
     "  osDerived = " ++ showM mderiv ++ ",\n" ++
     "  osSetFlag = " ++ showM msetfl ++ ",\n" ++
     "  osSetUnary = " ++ showM msetu ++ "\n" ++
-    "  osMMembers = ...\n" ++
+    "  osMaybeMembers = ...\n" ++
     "  osOwner = ...\n" ++
     "}"
     where showM (Just _) = "Just (...function...)"
