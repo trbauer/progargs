@@ -68,8 +68,8 @@ library
 
   -- Other library packages from which modules are imported.
   build-depends:
-    base >=4.8 && <4.9,
-    ansi-terminal >=0.6 && <0.7
+      base >=4.8
+    , ansi-terminal >=0.6 && <0.7
 
   c-sources:           cbits/cbits.c
 
@@ -85,6 +85,6 @@ Test-Suite  test-progargs
   main-is:         Tests/Test.hs
   c-sources:       cbits/cbits.c
   build-depends:
-      base >=4.8 && <4.9
+      base >=4.8
     , ansi-terminal >=0.6 && <0.7
 
