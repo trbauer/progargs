@@ -1,7 +1,7 @@
 module Prog.Args.Args(
     module Prog.Args.Types
   -- specification construction
-  , mkSpec, mkSpecsWithHelpOpt
+  , mkSpec, mkSpecWithHelpOpt
 
   -- option, flag, and argument smart constructors
   , opt -- basic opts (optV for OptVal type class?)
@@ -87,8 +87,8 @@ mkSpec exe desc max_cols oss ass = spec
 
 
 -- Same as 'mkSpec', but adds a -h --help trigger to list help and exit.
-mkSpecsWithHelpOpt :: String -> String -> Int -> [OptSpec o] -> [OptSpec o] -> Spec o
-mkSpecsWithHelpOpt exe desc max_cols oss0 ass = spec
+mkSpecWithHelpOpt :: String -> String -> Int -> [OptSpec o] -> [OptSpec o] -> Spec o
+mkSpecWithHelpOpt exe desc max_cols oss0 ass = spec
   where spec = mkSpec exe desc max_cols oss1 ass
 
         oss1 = helpOpt : oss0

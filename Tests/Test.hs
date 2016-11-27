@@ -24,7 +24,7 @@ dfltOpts :: Opts
 dfltOpts = Opts 0 8 0 "" "" [] 0
 
 goodSpec1 :: Spec Opts
-goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [
+goodSpec1 = mkSpecWithHelpOpt "testargs" "tests Args package" 0 [
                   optF goodSpec1 "v" "verbose"
                     "the verbosity level" ""
                     (\o -> (o {oVerbosity = 1}))
@@ -76,7 +76,7 @@ goodSpec1 = mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [
                 ]
 goodSpec2 :: Spec Opts
 goodSpec2 =
-  mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [][
+  mkSpecWithHelpOpt "testargs" "tests Args package" 0 [][
                   arg goodSpec2 "ARG1" "the arg" "long arg desc"
                     (\a o -> o{oArgs = oArgs o ++ [a]})
                 , arg goodSpec2 "ARG2" "the second arg" "the second arg"
@@ -84,7 +84,7 @@ goodSpec2 =
                 ]
 goodSpec3 :: Spec Opts
 goodSpec3 =
-  mkSpecsWithHelpOpt "testargs" "tests Args package" 0 [][
+  mkSpecWithHelpOpt "testargs" "tests Args package" 0 [][
                   arg goodSpec3 "ARG1" "the arg" "long arg desc"
                     (\a o -> o{oArgs = oArgs o ++ [a]})
                 , arg goodSpec3 "ARG2" "the second arg" "the second arg"
@@ -94,7 +94,7 @@ goodSpec3 =
 
 badSpec1 :: Spec Opts
 badSpec1 =
-  mkSpecsWithHelpOpt "badSpec1" "tests Args package: badSpec1" 0 [
+  mkSpecWithHelpOpt "badSpec1" "tests Args package: badSpec1" 0 [
       optF badSpec1 "X" "oops"
         "conflicts" ""
         (\o -> (o {oVerbosity = 1})) # OptAttrAllowUnset
@@ -119,7 +119,7 @@ badSpec1 =
 
 badSpec2 :: Spec Opts
 badSpec2 =
-  mkSpecsWithHelpOpt "testargs2" "tests Args package: badSpec2" 0 [
+  mkSpecWithHelpOpt "testargs2" "tests Args package: badSpec2" 0 [
       optF badSpec2 "Xfoo" "oops"
         "conflicts" ""
         (\o -> (o {oVerbosity = 1}))
