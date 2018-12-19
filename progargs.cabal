@@ -10,7 +10,7 @@ name:                progargs
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.3.0.1
+version:             0.3.0.2
 -- 0.2.0.1 fixed false positive bug with multiple args using ""
 
 -- A short (one-line) description of the package.
@@ -53,6 +53,7 @@ library
         Prog.Args
       , Prog.Args.Args
       , Prog.Args.Impl
+      , Prog.Args.Native
       , Prog.Args.OptVal
       , Prog.Args.Types
 
