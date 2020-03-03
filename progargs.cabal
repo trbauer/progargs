@@ -10,7 +10,7 @@ name:                progargs
 -- PVP summary:      +-+------- breaking API changes
 --                   | | +----- non-breaking API additions
 --                   | | | +--- code changes with no API change
-version:             0.3.0.2
+version:             0.3.0.3
 -- 0.2.0.1 fixed false positive bug with multiple args using ""
 
 -- A short (one-line) description of the package.
@@ -70,7 +70,7 @@ library
   -- Other library packages from which modules are imported.
   build-depends:
       base >=4.8
-    , ansi-terminal >=0.6 && <0.7
+    , ansi-terminal >=0.6
 
   c-sources:           cbits/cbits.c
 
@@ -87,5 +87,5 @@ Test-Suite  test-progargs
   c-sources:       cbits/cbits.c
   build-depends:
       base >=4.8
-    , ansi-terminal >=0.6 && <0.7
+    , ansi-terminal >=0.6
 
